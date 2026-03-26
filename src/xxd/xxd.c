@@ -73,7 +73,6 @@
  * 24.08.2025  avoid NULL dereference with autoskip colorless
  * 26.11.2025  update indent in exit_with_usage()
  * 19.03.2026  Add -t option to end output with terminating null
- * 25.03.2026  Fix color output issues
  *
  * (c) 1990-1998 by Juergen Weigert (jnweiger@gmail.com)
  *
@@ -154,7 +153,7 @@ extern void perror __P((char *));
 # endif
 #endif
 
-char version[] = "xxd 2026-03-25 by Juergen Weigert et al.";
+char version[] = "xxd 2026-03-19 by Juergen Weigert et al.";
 #ifdef WIN32
 char osver[] = " (Win32)";
 #else
@@ -724,16 +723,7 @@ enable_color(void)
   mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
   return (int)SetConsoleMode(out, mode);
 #elif defined(UNIX)
-  char *term;
-
-  if (!isatty(STDOUT_FILENO))
-    return 0;
-
-  term = getenv("TERM");
-  if (term == NULL || *term == '\0' || !strcmp(term, "dumb"))
-    return 0;
-
-  return 1;
+  return isatty(STDOUT_FILENO);
 #else
   return 0;
 #endif
@@ -758,7 +748,6 @@ main(int argc, char *argv[])
   char *varname = NULL;
   int addrlen = 9;
   int color = 0;
-  int color_forced = 0;	/* set when -R always is used */
   char *no_color;
   char cur_color = 0;
 
@@ -931,7 +920,6 @@ main(int argc, char *argv[])
 	    {
 	      (void)enable_color();
 	      color = 1;
-	      color_forced = 1;
 	    }
 	  else if (!STRNCMP(pw, "never", 5))
 	    color = 0;
@@ -1030,10 +1018,6 @@ main(int argc, char *argv[])
 	  return 3;
 	}
       rewind(fpo);
-
-      /* Disable auto color when writing to a file. */
-      if (!color_forced)
-	color = 0;
     }
 
   if (revert)

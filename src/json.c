@@ -163,8 +163,6 @@ write_string(garray_T *gap, char_u *str)
     }
 #endif
     ga_append(gap, '"');
-    // Pre-grow for the common case: input length + quotes + some escapes.
-    ga_grow(gap, (int)STRLEN(res) + 2);
     // `from` is the beginning of a sequence of bytes we can directly copy from
     // the input string, avoiding the overhead associated to decoding/encoding
     // them.
@@ -187,19 +185,20 @@ write_string(garray_T *gap, char_u *str)
 	    switch (c)
 	    {
 		case 0x08:
-		    GA_CONCAT_LITERAL(gap, "\\b"); break;
+		    ga_append(gap, '\\'); ga_append(gap, 'b'); break;
 		case 0x09:
-		    GA_CONCAT_LITERAL(gap, "\\t"); break;
+		    ga_append(gap, '\\'); ga_append(gap, 't'); break;
 		case 0x0a:
-		    GA_CONCAT_LITERAL(gap, "\\n"); break;
+		    ga_append(gap, '\\'); ga_append(gap, 'n'); break;
 		case 0x0c:
-		    GA_CONCAT_LITERAL(gap, "\\f"); break;
+		    ga_append(gap, '\\'); ga_append(gap, 'f'); break;
 		case 0x0d:
-		    GA_CONCAT_LITERAL(gap, "\\r"); break;
+		    ga_append(gap, '\\'); ga_append(gap, 'r'); break;
 		case 0x22: // "
-		    GA_CONCAT_LITERAL(gap, "\\\""); break;
 		case 0x5c: // backslash
-		    GA_CONCAT_LITERAL(gap, "\\\\"); break;
+		    ga_append(gap, '\\');
+		    ga_append(gap, c);
+		    break;
 		default:
 		{
 		    size_t  numbuflen;
@@ -342,24 +341,13 @@ json_encode_item(garray_T *gap, typval_T *val, int copyID, int options, int dept
 		ga_append(gap, '[');
 		for (i = 0; i < b->bv_ga.ga_len; i++)
 		{
-		    int	    byte = blob_get(b, i);
+		    size_t  numbuflen;
 
 		    if (i > 0)
-			ga_append(gap, ',');
-		    // blob bytes are 0-255, use simple conversion
-		    if (byte >= 100)
-		    {
-			ga_append(gap, '0' + byte / 100);
-			ga_append(gap, '0' + (byte / 10) % 10);
-			ga_append(gap, '0' + byte % 10);
-		    }
-		    else if (byte >= 10)
-		    {
-			ga_append(gap, '0' + byte / 10);
-			ga_append(gap, '0' + byte % 10);
-		    }
-		    else
-			ga_append(gap, '0' + byte);
+			GA_CONCAT_LITERAL(gap, ",");
+		    numbuflen = vim_snprintf_safelen((char *)numbuf, sizeof(numbuf),
+			"%d", blob_get(b, i));
+		    ga_concat_len(gap, numbuf, numbuflen);
 		}
 		ga_append(gap, ']');
 	    }
@@ -622,7 +610,7 @@ json_decode_string(js_read_T *reader, typval_T *res, int quote)
 			return FAIL;
 		    }
 		    p += len + 2;
-		    if (0xd800 <= nr && nr <= 0xdbff
+		    if (0xd800 <= nr && nr <= 0xdfff
 			    && (int)(reader->js_end - p) >= 6
 			    && *p == '\\' && *(p+1) == 'u')
 		    {
@@ -644,13 +632,6 @@ json_decode_string(js_read_T *reader, typval_T *res, int quote)
 			    nr = (((nr - 0xd800) << 10) |
 				((nr2 - 0xdc00) & 0x3ff)) + 0x10000;
 			}
-		    }
-		    // Lone surrogate is invalid.
-		    if (0xd800 <= nr && nr <= 0xdfff)
-		    {
-			if (res != NULL)
-			    ga_clear(&ga);
-			return FAIL;
 		    }
 		    if (res != NULL)
 		    {
@@ -994,13 +975,7 @@ json_decode_item(js_read_T *reader, typval_T *res, int options)
 			retval = OK;
 			break;
 		    }
-		    // In strinct JSON mode, keywords must be lowercase.
-		    // In JS mode, keywords are case-insensitive.
-#define MATCH_KW(p, kw, len) \
-    ((options & JSON_JS) \
-     ? STRNICMP((char *)(p), (kw), (len)) == 0 \
-     : STRNCMP((char *)(p), (kw), (len)) == 0)
-		    if (MATCH_KW(p, "false", 5))
+		    if (STRNICMP((char *)p, "false", 5) == 0)
 		    {
 			reader->js_used += 5;
 			if (cur_item != NULL)
@@ -1011,7 +986,7 @@ json_decode_item(js_read_T *reader, typval_T *res, int options)
 			retval = OK;
 			break;
 		    }
-		    if (MATCH_KW(p, "true", 4))
+		    if (STRNICMP((char *)p, "true", 4) == 0)
 		    {
 			reader->js_used += 4;
 			if (cur_item != NULL)
@@ -1022,7 +997,7 @@ json_decode_item(js_read_T *reader, typval_T *res, int options)
 			retval = OK;
 			break;
 		    }
-		    if (MATCH_KW(p, "null", 4))
+		    if (STRNICMP((char *)p, "null", 4) == 0)
 		    {
 			reader->js_used += 4;
 			if (cur_item != NULL)
@@ -1033,7 +1008,7 @@ json_decode_item(js_read_T *reader, typval_T *res, int options)
 			retval = OK;
 			break;
 		    }
-		    if (MATCH_KW(p, "NaN", 3))
+		    if (STRNICMP((char *)p, "NaN", 3) == 0)
 		    {
 			reader->js_used += 3;
 			if (cur_item != NULL)
@@ -1044,7 +1019,7 @@ json_decode_item(js_read_T *reader, typval_T *res, int options)
 			retval = OK;
 			break;
 		    }
-		    if (MATCH_KW(p, "-Infinity", 9))
+		    if (STRNICMP((char *)p, "-Infinity", 9) == 0)
 		    {
 			reader->js_used += 9;
 			if (cur_item != NULL)
@@ -1055,7 +1030,7 @@ json_decode_item(js_read_T *reader, typval_T *res, int options)
 			retval = OK;
 			break;
 		    }
-		    if (MATCH_KW(p, "Infinity", 8))
+		    if (STRNICMP((char *)p, "Infinity", 8) == 0)
 		    {
 			reader->js_used += 8;
 			if (cur_item != NULL)
@@ -1066,7 +1041,6 @@ json_decode_item(js_read_T *reader, typval_T *res, int options)
 			retval = OK;
 			break;
 		    }
-#undef MATCH_KW
 		    // check for truncated name
 		    len = (int)(reader->js_end
 					 - (reader->js_buf + reader->js_used));

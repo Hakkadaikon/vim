@@ -4856,9 +4856,9 @@ eval8(
 
     res = eval9(arg, rettv, evalarg, want_string);
 
-    if (want_type != NULL)
+    if (want_type != NULL && evaluate)
     {
-	if (evaluate && res == OK)
+	if (res == OK)
 	{
 	    type_T *actual = typval2type(rettv, get_copyID(), &type_list,
 							       TVTT_DO_MEMBER);

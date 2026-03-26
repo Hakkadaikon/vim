@@ -452,10 +452,6 @@ clip_auto_select(void)
     int
 clip_isautosel_star(void)
 {
-# ifdef FEAT_CLIPBOARD_PROVIDER
-    if (clipmethod == CLIPMETHOD_PROVIDER)
-	return false;
-# endif
 # ifdef FEAT_GUI
     if (gui.in_use)
 	return vim_strchr(p_go, GO_ASEL) != NULL
@@ -471,10 +467,6 @@ clip_isautosel_star(void)
     int
 clip_isautosel_plus(void)
 {
-# ifdef FEAT_CLIPBOARD_PROVIDER
-    if (clipmethod == CLIPMETHOD_PROVIDER)
-	return false;
-# endif
 # ifdef FEAT_GUI
     if (gui.in_use)
 	return vim_strchr(p_go, GO_ASELPLUS) != NULL;
@@ -1932,7 +1924,8 @@ clip_x11_set_selection(Clipboard_T *cbd UNUSED)
 
 # endif
 
-# if defined(FEAT_XCLIPBOARD) || defined(FEAT_GUI_X11) || defined(FEAT_GUI_GTK)
+# if (defined(FEAT_XCLIPBOARD) || defined(FEAT_GUI_X11) || defined(FEAT_GUI_GTK)) \
+	&& !defined(USE_GTK4)
 /*
  * Get the contents of the X CUT_BUFFER0 and put it in "cbd".
  */
@@ -3666,7 +3659,7 @@ did_set_clipboard(optset_T *args UNUSED)
 	vim_regfree(clip_exclude_prog);
 	clip_exclude_prog = new_exclude_prog;
 # endif
-# ifdef FEAT_GUI_GTK
+# if defined(FEAT_GUI_GTK) && !defined(USE_GTK4)
 	if (gui.in_use)
 	{
 	    gui_gtk_set_selection_targets((GdkAtom)GDK_SELECTION_PRIMARY);
